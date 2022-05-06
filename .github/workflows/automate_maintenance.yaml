@@ -1,0 +1,72 @@
+name: Automate Maintenance
+on:
+  pull_request_target:
+    types:
+      - opened
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v6
+        env:
+          PROJECT_NUMBER: 1
+        with:
+          github-token: ${{ secrets.PROJECT_PAT  }}
+          # THIS SCRIPT SHOULD BE INLINED AND NOT IN REPO
+          # DUE TO THE TOKEN PERMISSIONS THAT ARE GIVEN
+          # TO THE WORKFLOW. THIS SCRIPT WILL AND SHOULD
+          # RUN FROM THE BASE REPO ALL TIMES.
+          script: |
+            let projectLookup
+            try {
+              projectLookup = await github.graphql(`
+                query($owner: String!, $projectNumber: Int!){
+                  organization(login: $owner) {
+                    projectNext(number: $projectNumber) {
+                      id
+                    }
+                  }
+                  user(login: $owner) {
+                    projectNext(number: $projectNumber) {
+                      id
+                    }
+                  }
+                }
+              `, {
+                owner: context.repo.owner,
+                projectNumber: Number(process.env.PROJECT_NUMBER),
+              });
+            } catch (error) {
+              if (error?.errors.every(e => e.type === 'NOT_FOUND')) {
+                projectLookup = error.data
+              } else {
+                throw error
+              }
+            }
+
+            console.log('projectLookup =', projectLookup)
+
+            const prLookup = await github.graphql(`
+              query($owner: String!, $repo: String!, $number: Int!){
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    id
+                  }
+                }
+              }
+            `, context.issue);
+
+            console.log('prLookup =', prLookup)
+
+            await github.graphql(`
+              mutation($projectId: ID!, $contentId: ID!) {
+                addProjectNextItem(input: {
+                  projectId: $projectId,
+                  contentId: $contentId,
+                })
+              }
+            `, {
+              projectId: projectLookup.organization?.projectNext.id ?? projectLookup.user?.projectNext.id,
+              contentId: prLookup.repository.pullRequest.id
+            })
