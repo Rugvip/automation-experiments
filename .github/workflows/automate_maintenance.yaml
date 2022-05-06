@@ -1,0 +1,45 @@
+name: Automate Maintenance
+on:
+  pull_request_target:
+    types:
+      - opened
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PROJECT_PAT  }}
+          # THIS SCRIPT SHOULD BE INLINED AND NOT IN REPO
+          # DUE TO THE TOKEN PERMISSIONS THAT ARE GIVEN
+          # TO THE WORKFLOW. THIS SCRIPT WILL AND SHOULD
+          # RUN FROM THE BASE REPO ALL TIMES.
+          script: |
+            const prLookup = await github.graphql(`
+              query($owner: String!, $name: String!, $prNumber: Number!){
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $prNumber) {
+                    id
+                  }
+                }
+              }
+            `, {
+              owner: context.repo.owner,
+              name: context.repo.name,
+              prNumber: context.issue.number,
+            });
+
+            console.log('prLookup', prLookup)
+
+            await github.graphql(`
+              mutation($projectId: ID!, $contentId: ID!) {
+                addProjectNextItem(input: {
+                  projectId: $projectId,
+                  contentId: $contentId
+                })
+              }
+            `, {
+              projectId: "PN_kwHOAEwOmM4ABprK",
+              contentId: prLookup.data.repository.pullRequest.id
+            })
